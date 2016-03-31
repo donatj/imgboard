@@ -34,19 +34,18 @@ func init() {
 func indexHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
 	fmt.Fprint(w, `<form method="get" action="/click">
-		<input type="image" name="imgbtn" src="/image">
-		
-		<br />
-		
-		<h5>Color</h5>
-		<input type="color" name="color">
-		
-		<br />
-		
-		<h5>Size</h5>
-		<input type="range" name="size" min="1" max="99" value="3">
-		
-	</form>`)
+	<input type="image" name="imgbtn" src="/image">
+	
+	<br />
+	
+	<h5>Color</h5>
+	<input type="color" name="color">
+	
+	<br />
+	
+	<h5>Size</h5>
+	<input type="range" name="size" min="1" max="99" value="3">
+</form>`)
 }
 
 func mjpegHandler(w http.ResponseWriter, r *http.Request) {
