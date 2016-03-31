@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -16,6 +17,8 @@ var (
 	boundry  = "spiderman"
 	m        = image.NewRGBA(image.Rect(0, 0, 640, 480))
 	writeMut = sync.Mutex{}
+
+	numOnline int64 = 0
 )
 
 func init() {
@@ -29,6 +32,8 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func mjpegHandler(w http.ResponseWriter, r *http.Request) {
+	atomic.AddInt64(&numOnline, 1)
+
 	n, ok := w.(http.CloseNotifier)
 	if !ok {
 		http.Error(w, "cannot stream", http.StatusInternalServerError)
@@ -54,10 +59,11 @@ func mjpegHandler(w http.ResponseWriter, r *http.Request) {
 
 		select {
 		case <-n.CloseNotify():
-			fmt.Println("closed")
+			atomic.AddInt64(&numOnline, -1)
+			fmt.Println("...closed")
 			return
 		case <-t.C:
-			fmt.Println("open")
+			fmt.Print(numOnline, " ")
 		}
 	}
 }
