@@ -1,10 +1,10 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"image"
 	"image/color"
-	"image/draw"
 	"image/jpeg"
 	"net/http"
 	"strconv"
@@ -14,23 +14,39 @@ import (
 )
 
 var (
+	httpPort = flag.Uint("http-port", 8080, "http port to run on")
+)
+
+var (
 	boundry = "spiderman"
-	m       = image.NewRGBA(image.Rect(0, 0, 640, 480))
+	m       = image.NewRGBA(image.Rect(0, 0, 800, 800))
 	mut     = sync.Mutex{}
 
-	numOnline int64 = 0
+	numOnline int64
 
 	chanMap = make(map[chan bool]bool)
 )
 
 func init() {
-	blue := color.RGBA{0, 0, 255, 255}
-	draw.Draw(m, m.Bounds(), &image.Uniform{blue}, image.ZP, draw.Src)
+	flag.Parse()
 }
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprint(w, `<form method="get" action="/click"><input type="image" name="imgbtn" src="/image"></form>`)
+	fmt.Fprint(w, `<form method="get" action="/click">
+		<input type="image" name="imgbtn" src="/image">
+		
+		<br />
+		
+		<h5>Color</h5>
+		<input type="color" name="color">
+		
+		<br />
+		
+		<h5>Size</h5>
+		<input type="range" name="size" min="1" max="99" value="3">
+		
+	</form>`)
 }
 
 func mjpegHandler(w http.ResponseWriter, r *http.Request) {
@@ -89,16 +105,58 @@ func mjpegHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func clickHandler(w http.ResponseWriter, r *http.Request) {
-	x, _ := strconv.Atoi(r.FormValue("imgbtn.x"))
-	y, _ := strconv.Atoi(r.FormValue("imgbtn.y"))
+	x, err := strconv.Atoi(r.FormValue("imgbtn.x"))
+	if err != nil {
+		http.Error(w, "invalid int for x", 400)
+		return
+	}
+
+	y, err := strconv.Atoi(r.FormValue("imgbtn.y"))
+	if err != nil {
+		http.Error(w, "invalid int for y", 400)
+		return
+	}
+
+	c := color.RGBA{255, 255, 0, 255}
+
+	s, err := strconv.Atoi(r.FormValue("size"))
+	if err != nil {
+		http.Error(w, "invalid int for size", 400)
+		return
+	}
+
+	if s < 0 || s > 100 {
+		http.Error(w, "invalid size", 400)
+		return
+	}
+
+	fc := r.FormValue("color")
+	if fc != "" {
+		if len(fc) != 7 || fc[0] != '#' {
+			http.Error(w, "invalid color", 400)
+			return
+		}
+
+		cr, err1 := strconv.ParseUint(fc[1:3], 16, 8)
+		cg, err2 := strconv.ParseUint(fc[3:5], 16, 8)
+		cb, err3 := strconv.ParseUint(fc[5:7], 16, 8)
+
+		if err1 != nil || err2 != nil || err3 != nil {
+			http.Error(w, "invalid color", 400)
+			return
+		}
+
+		c = color.RGBA{uint8(cr), uint8(cg), uint8(cb), 255}
+	}
 
 	mut.Lock()
-	for xx := -1; xx <= 1; xx++ {
-		for yy := -1; yy <= 1; yy++ {
-			m.Set(x+xx, y+yy, color.RGBA{255, 255, 0, 255})
+	for xx := 0 - s; xx <= s; xx++ {
+		for yy := 0 - s; yy <= s; yy++ {
+			m.Set(x+xx, y+yy, c)
 		}
 	}
 	mut.Unlock()
+
 	fmt.Println(x, y)
 	w.WriteHeader(http.StatusNoContent)
 
@@ -111,7 +169,7 @@ func main() {
 	http.HandleFunc("/", indexHandler)
 	http.HandleFunc("/click", clickHandler)
 	http.HandleFunc("/image", mjpegHandler)
-	err := http.ListenAndServe(":4040", nil)
+	err := http.ListenAndServe(fmt.Sprintf(":%d", *httpPort), nil)
 	if err != nil {
 		panic(err)
 	}
