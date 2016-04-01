@@ -20,7 +20,7 @@ var (
 var (
 	boundry = "spiderman"
 	m       = image.NewRGBA(image.Rect(0, 0, 800, 800))
-	mut     = sync.Mutex{}
+	mut     = sync.RWMutex{}
 
 	numOnline int64
 
@@ -73,11 +73,11 @@ func mjpegHandler(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "--%s\n", boundry)
 		fmt.Fprint(w, "Content-type: image/jpeg\n\n")
 
-		mut.Lock()
+		mut.RLock()
 		m.Set(120, 120, color.RGBA{255, 255, 0, 255})
 		jpeg.Encode(w, m, &jpeg.Options{Quality: 70})
 		fmt.Fprint(w, "\n\n")
-		mut.Unlock()
+		mut.RUnlock()
 
 		t := time.NewTimer(15 * time.Second)
 
@@ -90,15 +90,16 @@ func mjpegHandler(w http.ResponseWriter, r *http.Request) {
 				mut.Lock()
 				delete(chanMap, update)
 				mut.Unlock()
+
 				return
 			case <-update:
-				flush = 3
+				flush = 2
 				fmt.Print("u")
 			case <-t.C:
 				fmt.Print(atomic.LoadInt64(&numOnline), " ")
 			}
 		} else {
-			flush -= 1
+			flush--
 		}
 	}
 }
