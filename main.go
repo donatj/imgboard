@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"image"
 	"image/color"
 	"image/jpeg"
+	"log"
 	"net/http"
 	"strconv"
 	"sync"
@@ -24,7 +26,7 @@ var (
 
 	numOnline int64
 
-	chanMap = make(map[chan bool]bool)
+	bc = newBroadcast()
 )
 
 func init() {
@@ -39,26 +41,27 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 	<br />
 	
 	<h5>Color</h5>
-	<input type="color" name="color">
+	<input type="color" name="color" value="#e66465">
 	
 	<br />
 	
 	<h5>Size</h5>
-	<input type="range" name="size" min="1" max="99" value="3">
+	<input type="range" name="size" min="1" max="99" value="10">
 </form>`)
 }
 
 func mjpegHandler(w http.ResponseWriter, r *http.Request) {
 	atomic.AddInt64(&numOnline, 1)
 
-	mut.Lock()
-	update := make(chan bool)
-	chanMap[update] = true
-	mut.Unlock()
-
 	n, ok := w.(http.CloseNotifier)
 	if !ok {
-		http.Error(w, "cannot stream", http.StatusInternalServerError)
+		http.Error(w, "cannot stream - no closer", http.StatusInternalServerError)
+		return
+	}
+
+	f, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "cannot stream - no flush", http.StatusInternalServerError)
 		return
 	}
 
@@ -67,41 +70,45 @@ func mjpegHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Content-type", "multipart/x-mixed-replace; boundary="+boundry)
 
-	flush := 10
+	datac := bc.Register()
+
+	data := imgbytes()
+	for i := 0; i <= 10; i++ {
+		writeFrame(w, data)
+		f.Flush()
+	}
+	fmt.Println("...")
 
 	for {
-		fmt.Fprintf(w, "--%s\n", boundry)
-		fmt.Fprint(w, "Content-type: image/jpeg\n\n")
 
-		mut.RLock()
-		m.Set(120, 120, color.RGBA{255, 255, 0, 255})
-		jpeg.Encode(w, m, &jpeg.Options{Quality: 70})
-		fmt.Fprint(w, "\n\n")
-		mut.RUnlock()
+		t := time.NewTimer(5 * time.Second)
 
-		t := time.NewTimer(15 * time.Second)
-
-		if flush == 0 {
-			select {
-			case <-n.CloseNotify():
-				atomic.AddInt64(&numOnline, -1)
-				fmt.Println("...closed")
-
-				mut.Lock()
-				delete(chanMap, update)
-				mut.Unlock()
-
-				return
-			case <-update:
-				flush = 2
-				fmt.Print("u")
-			case <-t.C:
-				fmt.Print(atomic.LoadInt64(&numOnline), " ")
+		select {
+		case data = <-datac:
+			for i := 0; i <= 1; i++ {
+				writeFrame(w, data)
+				f.Flush()
 			}
-		} else {
-			flush--
+		case <-n.CloseNotify():
+			atomic.AddInt64(&numOnline, -1)
+			fmt.Println("...closed")
+
+			bc.Clear(datac)
+
+			return
+		case <-t.C:
+			writeFrame(w, data)
+			f.Flush()
 		}
+
 	}
+}
+
+func writeFrame(w http.ResponseWriter, data []byte) {
+	fmt.Fprintf(w, "--%s\n", boundry)
+	fmt.Fprint(w, "Content-Type: image/jpeg\n\n")
+	w.Write(data)
+	fmt.Fprint(w, "\n\n")
 }
 
 func clickHandler(w http.ResponseWriter, r *http.Request) {
@@ -157,18 +164,34 @@ func clickHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	mut.Unlock()
 
+	bc.Broadcast(imgbytes())
+
 	fmt.Println(x, y)
 	w.WriteHeader(http.StatusNoContent)
 
-	for k := range chanMap {
-		k <- true
-	}
+}
+
+func imgbytes() []byte {
+	mut.Lock()
+	defer mut.Unlock()
+
+	var bb bytes.Buffer
+	jpeg.Encode(&bb, m, &jpeg.Options{Quality: 70})
+	return bb.Bytes()
 }
 
 func main() {
 	http.HandleFunc("/", indexHandler)
 	http.HandleFunc("/click", clickHandler)
 	http.HandleFunc("/image", mjpegHandler)
+
+	go func() {
+		for {
+			log.Println(atomic.LoadInt64(&numOnline), " users online")
+			time.Sleep(10 * time.Second)
+		}
+	}()
+
 	err := http.ListenAndServe(fmt.Sprintf(":%d", *httpPort), nil)
 	if err != nil {
 		panic(err)
