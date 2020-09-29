@@ -35,7 +35,8 @@ func init() {
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html")
-	fmt.Fprint(w, `<form method="get" action="/click">
+	fmt.Fprint(w, `<iframe src="about:blank" id="frame" name="frame" style="display:none;"></iframe>
+<form target="frame" method="get" action="/click">
 	<table>
 	<tr><td>
 	<h5>Color</h5>
