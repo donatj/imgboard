@@ -186,9 +186,14 @@ func main() {
 	http.HandleFunc("/image", mjpegHandler)
 
 	go func() {
+		var lastOnline int64
 		for {
-			log.Println(atomic.LoadInt64(&numOnline), " users online")
-			time.Sleep(10 * time.Second)
+			online := atomic.LoadInt64(&numOnline)
+			if online != lastOnline {
+				log.Println(online, " users online")
+			}
+			time.Sleep(time.Second / 2)
+			lastOnline = online
 		}
 	}()
 
